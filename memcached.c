@@ -19,6 +19,7 @@
 #endif
 #include "authfile.h"
 #include "restart.h"
+#include "rmem.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -8754,6 +8755,7 @@ int main (int argc, char **argv) {
     struct extstore_conf_file *storage_file = NULL;
     struct extstore_conf ext_cf;
 #endif
+    struct rmem_info rmem;
     char *subopts, *subopts_orig;
     char *subopts_value;
     enum {
@@ -8930,6 +8932,8 @@ int main (int argc, char **argv) {
     ext_cf.page_buckets = 4;
     ext_cf.wbuf_count = ext_cf.page_buckets;
 #endif
+    // This is initialized even if we don't end up using it
+    rmem_init(&rmem);
 
     /* Run regardless of initializing it later */
     init_lru_maintainer();
@@ -8972,6 +8976,7 @@ int main (int argc, char **argv) {
           "Y:"   /* Enable token auth */
           "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
+	  "x"   /* Use remote memory */
           ;
 
     /* process arguments */
@@ -9012,6 +9017,7 @@ int main (int argc, char **argv) {
         {"auth-file", required_argument, 0, 'Y'},
         {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
+	{"remote-mem", required_argument, 0, 'x'},
         {0, 0, 0, 0}
     };
     int optindex;
@@ -9204,8 +9210,6 @@ int main (int argc, char **argv) {
                 buf[strlen(buf)-1] = '\0';
                 size_max = atoi(buf);
                 if (unit == 'k' || unit == 'K')
-                    size_max *= 1024;
-                if (unit == 'm' || unit == 'M')
                     size_max *= 1024 * 1024;
                 settings.item_size_max = size_max;
             } else {
@@ -9220,6 +9224,9 @@ int main (int argc, char **argv) {
 #endif
             settings.sasl = true;
             break;
+	case 'x':
+	    rmem_add_suffix(&rmem, strtol(optarg, NULL, 16));
+	    break;
        case 'F' :
             settings.flush_enabled = false;
             break;
@@ -10080,6 +10087,14 @@ int main (int argc, char **argv) {
         // Also, the callbacks for load() run before _open returns, so we
         // should have the old base in 'meta' as of here.
     }
+    if (rmem.nmems > 0) {
+	preallocate = true;
+	prefill = true;
+        restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
+	if (rmem_mmap_open(settings.maxbytes, &rmem, &mem_base))
+	    abort();
+        meta->mmap_base = mem_base;
+    }
     // Initialize the hash table _after_ checking restart metadata.
     // We override the hash table start argument with what was live
     // previously, to avoid filling a huge set of items into a tiny hash
@@ -10321,6 +10336,9 @@ int main (int argc, char **argv) {
     stop_threads();
     if (memory_file != NULL && stop_main_loop == GRACE_STOP) {
         restart_mmap_close();
+    }
+    if (rmem.nmems > 0) {
+	rmem_mmap_close(&rmem);
     }
 
     /* remove the PID file if we're a daemon */
