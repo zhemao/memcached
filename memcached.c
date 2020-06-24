@@ -8976,7 +8976,7 @@ int main (int argc, char **argv) {
           "Y:"   /* Enable token auth */
           "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
-	  "x"   /* Use remote memory */
+	  "x:"   /* Use remote memory */
           ;
 
     /* process arguments */
@@ -10088,12 +10088,15 @@ int main (int argc, char **argv) {
         // should have the old base in 'meta' as of here.
     }
     if (rmem.nmems > 0) {
+
 	preallocate = true;
 	prefill = true;
         restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
 	if (rmem_mmap_open(settings.maxbytes, &rmem, &mem_base))
 	    abort();
         meta->mmap_base = mem_base;
+
+	printf("Starting memcached with %d remote memories.\n", rmem.nmems);
     }
     // Initialize the hash table _after_ checking restart metadata.
     // We override the hash table start argument with what was live

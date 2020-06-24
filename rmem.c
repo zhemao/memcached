@@ -26,7 +26,8 @@ void rmem_add_suffix(struct rmem_info *rmem, int suffix)
 int rmem_mmap_open(size_t maxbytes, struct rmem_info *rmem, void **mem_base)
 {
     volatile uint64_t *exttab;
-    int etfd, i;
+    size_t i;
+    int etfd;
 
     etfd = open("/dev/dram-cache-exttab", O_RDWR);
     if (etfd < 0) {
@@ -56,27 +57,32 @@ int rmem_mmap_open(size_t maxbytes, struct rmem_info *rmem, void **mem_base)
 	return rmem->fd;
     }
 
-    rmem->mem = mmap(NULL, PAGE_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, rmem->fd, 0);
-    rmem->npages++;
+    rmem->npages = (maxbytes - 1) / PAGE_SIZE + 1;
+
+    // Map the entire thing at first to reserve the address space
+    rmem->mem = mmap(NULL, rmem->npages * PAGE_SIZE,
+		    PROT_READ|PROT_WRITE, MAP_SHARED, rmem->fd, 0);
 
     if (rmem->mem == MAP_FAILED) {
 	perror("mmap");
 	return -1;
     }
 
+    // Now unmap all but the first page so we can remap them
+    munmap(rmem->mem + PAGE_SIZE, (rmem->npages - 1) * PAGE_SIZE);
+
     // Round-Robin page mappings between extents
-    while (rmem->npages * PAGE_SIZE < maxbytes) {
+    for (i = 0; i < rmem->npages; i++) {
 	void *res;
-	off_t extoff = (rmem->npages % MAX_EXTENTS) * EXTENT_SIZE;
-	off_t pgoff = (rmem->npages / MAX_EXTENTS) * PAGE_SIZE;
-	res = mmap(rmem->mem + (PAGE_SIZE * rmem->npages),
+	off_t extoff = (i % MAX_EXTENTS) * EXTENT_SIZE;
+	off_t pgoff = (i / MAX_EXTENTS) * PAGE_SIZE;
+	res = mmap(rmem->mem + (PAGE_SIZE * i),
 			PAGE_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED,
 			rmem->fd, extoff + pgoff);
 	if (res == MAP_FAILED) {
 	    perror("mmap");
 	    return -1;
 	}
-	rmem->npages++;
     }
 
     *mem_base = rmem->mem;
