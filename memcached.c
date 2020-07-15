@@ -10096,7 +10096,8 @@ int main (int argc, char **argv) {
 	    abort();
         meta->mmap_base = mem_base;
 
-	printf("Starting memcached with %d remote memories.\n", rmem.nmems);
+	if (settings.verbose >= 1)
+	    printf("Starting memcached with %d remote memories.\n", rmem.nmems);
     }
     // Initialize the hash table _after_ checking restart metadata.
     // We override the hash table start argument with what was live
